@@ -3,15 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Markdown-редактор с WebSocket</title>
+    <title>Совместный редактор</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             background: #f5f7fa;
             display: flex;
             justify-content: center;
@@ -26,18 +22,12 @@
             padding: 30px;
             width: 100%;
             max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 6px;
-            color: #1e293b;
-        }
-        .subtitle {
-            color: #64748b;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
+        h1 { font-size: 24px; color: #1e293b; }
+        .subtitle { color: #64748b; font-size: 14px; margin-top: -8px; }
         .status {
             display: inline-block;
             padding: 4px 14px;
@@ -46,19 +36,13 @@
             font-weight: 500;
             background: #e2e8f0;
             color: #475569;
-            margin-bottom: 16px;
+            align-self: flex-start;
         }
-        .status.connected {
-            background: #dcfce7;
-            color: #166534;
-        }
-        .status.error {
-            background: #fee2e2;
-            color: #991b1b;
-        }
+        .status.connected { background: #dcfce7; color: #166534; }
+        .status.error { background: #fee2e2; color: #991b1b; }
         textarea {
             width: 100%;
-            height: 350px;
+            height: 400px;
             padding: 16px;
             font-family: 'Cascadia Code', 'Fira Code', monospace;
             font-size: 15px;
@@ -66,19 +50,14 @@
             border: 2px solid #e2e8f0;
             border-radius: 8px;
             resize: vertical;
-            transition: border 0.2s;
         }
-        textarea:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-        }
+        textarea:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
         .toolbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 16px;
             gap: 12px;
+            flex-wrap: wrap;
         }
         button {
             background: #3b82f6;
@@ -89,42 +68,10 @@
             font-size: 16px;
             font-weight: 500;
             cursor: pointer;
-            transition: background 0.15s, transform 0.1s;
+            transition: background 0.15s;
         }
-        button:hover {
-            background: #2563eb;
-        }
-        button:active {
-            transform: scale(0.97);
-        }
-        button:disabled {
-            background: #94a3b8;
-            cursor: not-allowed;
-            transform: none;
-        }
-        .response-area {
-            margin-top: 20px;
-            padding: 16px;
-            background: #f8fafc;
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
-            max-height: 150px;
-            overflow-y: auto;
-            font-size: 14px;
-            color: #1e293b;
-        }
-        .response-area p {
-            margin: 4px 0;
-        }
-        .response-area .sent {
-            color: #2563eb;
-        }
-        .response-area .received {
-            color: #16a34a;
-        }
-        .response-area .error-msg {
-            color: #dc2626;
-        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
         .clear-btn {
             background: none;
             border: 1px solid #e2e8f0;
@@ -133,130 +80,144 @@
             font-size: 13px;
             border-radius: 6px;
             cursor: pointer;
-            transition: background 0.2s;
         }
-        .clear-btn:hover {
-            background: #f1f5f9;
-        }
+        .clear-btn:hover { background: #f1f5f9; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>✍️ Markdown-редактор</h1>
-        <p class="subtitle">Отправьте текст через WebSocket на <code>ws://localhost:8080/ws</code></p>
-
-        <div id="status" class="status">⏳ Подключение...</div>
-
-        <textarea id="editor" placeholder="Введите ваш Markdown здесь..."></textarea>
-
-        <div class="toolbar">
-            <button id="sendBtn">📤 Отправить</button>
-            <button class="clear-btn" id="clearBtn">Очистить</button>
-        </div>
-
-        <div class="response-area" id="responseLog">
-            <p style="color: #94a3b8; font-style: italic;">Лог сообщений появится здесь...</p>
-        </div>
+<div class="container">
+    <h1>📝 Совместный редактор</h1>
+    <p class="subtitle">Все изменения добавляются в общий текст через WebSocket</p>
+    <div id="status" class="status">⏳ Подключение...</div>
+    <textarea id="editor" placeholder="Начните писать... (Ctrl+Enter для отправки)"></textarea>
+    <div class="toolbar">
+        <button id="sendBtn">📤 Отправить</button>
+        <button class="clear-btn" id="clearBtn">Очистить поле (локально)</button>
     </div>
+</div>
 
-    <script>
-        (function() {
-            const editor = document.getElementById('editor');
-            const sendBtn = document.getElementById('sendBtn');
-            const clearBtn = document.getElementById('clearBtn');
-            const statusEl = document.getElementById('status');
-            const responseLog = document.getElementById('responseLog');
+<script>
+    (function() {
+        const editor = document.getElementById('editor');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusEl = document.getElementById('status');
 
-            let ws = null;
-            let isConnected = false;
+        let ws = null;
+        let isConnected = false;
+        let reconnectTimeout = null;
 
-            function connectWebSocket() {
-                const wsUrl = 'ws://localhost:8080/ws';
-                ws = new WebSocket(wsUrl);
+        function logToConsole(msg) {
+            console.log('[WS]', msg);
+        }
 
-                ws.onopen = function() {
-                    isConnected = true;
-                    statusEl.textContent = '✅ Подключено';
-                    statusEl.className = 'status connected';
-                    sendBtn.disabled = false;
-                    logMessage('🔌 Соединение установлено', 'info');
-                };
-
-                ws.onmessage = function(event) {
-                    let data = event.data;
-                    if (data instanceof Blob) {
-                        data = event.data.text();
-                    }
-                    if (typeof data === 'string') {
-                        logMessage('📥 Получено: ' + data, 'received');
-                    } else {
-                        data.then(text => logMessage('📥 Получено (текст): ' + text, 'received'));
-                    }
-                };
-
-                ws.onerror = function(error) {
-                    console.error('WebSocket ошибка:', error);
-                    statusEl.textContent = '❌ Ошибка соединения';
-                    statusEl.className = 'status error';
-                    sendBtn.disabled = true;
-                    logMessage('⚠️ Ошибка WebSocket', 'error');
-                };
-
-                ws.onclose = function(event) {
-                    isConnected = false;
-                    statusEl.textContent = '🔴 Отключено';
-                    statusEl.className = 'status';
-                    sendBtn.disabled = true;
-                    logMessage('🔌 Соединение закрыто (код: ' + event.code + ')', 'error');
-                    setTimeout(connectWebSocket, 3000);
-                };
+        function connectWebSocket() {
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
             }
 
-            function logMessage(text, type = 'info') {
-                const p = document.createElement('p');
-                const timestamp = new Date().toLocaleTimeString();
-                p.textContent = `[${timestamp}] ${text}`;
-                p.className = type;
-                responseLog.appendChild(p);
-                responseLog.scrollTop = responseLog.scrollHeight;
+            if (ws) {
+                try {
+                    ws.close();
+                } catch (e) {}
+                ws = null;
             }
 
-            function sendText() {
-                const text = editor.value.trim();
-                if (!text) {
-                    alert('Поле ввода пустое. Напишите что-нибудь.');
+            const wsUrl = 'ws://localhost:8080/ws';
+            logToConsole('Попытка подключения к ' + wsUrl);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                logToConsole('Соединение открыто');
+                isConnected = true;
+                statusEl.textContent = '✅ Подключено';
+                statusEl.className = 'status connected';
+                sendBtn.disabled = false;
+            };
+
+            ws.onmessage = function(event) {
+                let rawData = event.data;
+                if (rawData instanceof Blob) {
+                    rawData.text().then(text => processMessage(text));
                     return;
                 }
-                if (!isConnected) {
-                    alert('Нет соединения с сервером. Попробуйте позже.');
-                    return;
+                processMessage(rawData);
+            };
+
+            function processMessage(text) {
+                logToConsole('Получено сообщение: ' + text);
+                try {
+                    const parsed = JSON.parse(text);
+                    const msg = parsed.message || '';
+                    if (msg) {
+                        const current = editor.value;
+                        editor.value = current ? current + '\n' + msg : msg;
+                        editor.scrollTop = editor.scrollHeight;
+                    }
+                } catch (e) {
+                    console.warn('Не удалось разобрать JSON:', text);
                 }
-                ws.send(text);
-                logMessage('📤 Отправлено: ' + (text.length > 80 ? text.substring(0,80) + '…' : text), 'sent');
             }
 
-            sendBtn.addEventListener('click', sendText);
+            ws.onerror = function(error) {
+                console.error('Ошибка WebSocket:', error);
+                logToConsole('Произошла ошибка');
+                statusEl.textContent = '❌ Ошибка';
+                statusEl.className = 'status error';
+                sendBtn.disabled = true;
+            };
 
-            editor.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    sendText();
-                }
-            });
+            ws.onclose = function(event) {
+                logToConsole('Соединение закрыто. Код: ' + event.code + ', причина: ' + event.reason + ', wasClean: ' + event.wasClean);
+                isConnected = false;
+                statusEl.textContent = '🔴 Отключено (код ' + event.code + ')';
+                statusEl.className = 'status';
+                sendBtn.disabled = true;
+                reconnectTimeout = setTimeout(connectWebSocket, 3000);
+            };
+        }
 
-            clearBtn.addEventListener('click', function() {
-                editor.value = '';
-                editor.focus();
-            });
+        function sendText() {
+            const text = editor.value.trim();
+            if (!text) {
+                alert('Поле ввода пустое.');
+                return;
+            }
+            if (!isConnected) {
+                alert('Нет соединения с сервером.');
+                return;
+            }
+            try {
+                ws.send(JSON.stringify({ message: text }));
+                logToConsole('Отправлено сообщение: ' + text.substring(0, 50) + '...');
+            } catch (e) {
+                alert('Ошибка отправки: ' + e.message);
+            }
+        }
 
-            connectWebSocket();
+        sendBtn.addEventListener('click', sendText);
+        editor.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendText();
+            }
+        });
+        clearBtn.addEventListener('click', function() {
+            editor.value = '';
             editor.focus();
+        });
 
-            responseLog.addEventListener('dblclick', function() {
-                responseLog.innerHTML = '';
-                logMessage('🧹 Лог очищен', 'info');
-            });
-        })();
-    </script>
+        connectWebSocket();
+        editor.focus();
+
+        window.addEventListener('beforeunload', function() {
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+    })();
+</script>
 </body>
 </html>
