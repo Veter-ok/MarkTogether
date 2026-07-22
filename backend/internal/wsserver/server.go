@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -17,6 +18,7 @@ const (
 
 type WSServer interface {
 	Start() error
+	Stop() error
 }
 
 type wsSrv struct {
@@ -51,6 +53,21 @@ func (ws *wsSrv) Start() error {
 	return ws.srv.ListenAndServe()
 }
 
+func (ws *wsSrv) Stop() error {
+	close(ws.broadcast)
+	log.Println("Before ", ws.wsClients)
+	ws.mutex.Lock()
+	for client := range ws.wsClients {
+		if err := client.Close(); err != nil {
+			log.Printf("Error with closing client: %v", err)
+		}
+		delete(ws.wsClients, client)
+	}
+	ws.mutex.Unlock()
+	log.Println("After ", ws.wsClients)
+	return ws.srv.Shutdown(context.Background())
+}
+
 func (ws *wsSrv) testHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Cool!"))
 }
@@ -73,7 +90,10 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 	for {
 		msg := new(wsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
-			log.Printf("Error with websoket connection: %v", err)
+			wsErr, ok := err.(*websocket.CloseError)
+			if !ok || wsErr.Code != websocket.CloseGoingAway {
+				log.Printf("Error with reading from WebSoket: %v", err)
+			}
 			break
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
