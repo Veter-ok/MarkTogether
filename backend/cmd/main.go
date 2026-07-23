@@ -13,6 +13,6 @@ const (
 func main() {
 	wsSrv := wsserver.NewWsServer(addr)
 	if err := wsSrv.Start(); err != nil {
-		log.Fatal("Error with server starting: %v", err)
+		log.Printf("Error with server starting: %v", err)
 	}
 }
