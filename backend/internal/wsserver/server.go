@@ -45,7 +45,6 @@ func NewWsServer(addr string) WSServer {
 
 func (ws *wsSrv) Start() error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
-	ws.mux.HandleFunc("/test", ws.testHandler)
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	return ws.srv.ListenAndServe()
 }
@@ -60,10 +59,6 @@ func (ws *wsSrv) Stop() error {
 	}
 	ws.mutex.Unlock()
 	return ws.srv.Shutdown(context.Background())
-}
-
-func (ws *wsSrv) testHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Cool!"))
 }
 
 func (ws *wsSrv) getOrCreateRoom(roomID string) *Room {
