@@ -22,12 +22,11 @@ type WSServer interface {
 }
 
 type wsSrv struct {
-	mux       *http.ServeMux
-	srv       *http.Server
-	wsUpg     *websocket.Upgrader
-	wsClients map[*websocket.Conn]struct{}
-	mutex     *sync.RWMutex
-	broadcast chan *wsMessage
+	mux     *http.ServeMux
+	srv     *http.Server
+	wsUpg   *websocket.Upgrader
+	wsRooms map[string]*Room
+	mutex   *sync.RWMutex
 }
 
 func NewWsServer(addr string) WSServer {
@@ -38,10 +37,9 @@ func NewWsServer(addr string) WSServer {
 			Addr:    addr,
 			Handler: mux,
 		},
-		wsUpg:     &websocket.Upgrader{},
-		wsClients: map[*websocket.Conn]struct{}{},
-		mutex:     &sync.RWMutex{},
-		broadcast: make(chan *wsMessage),
+		wsUpg:   &websocket.Upgrader{},
+		wsRooms: make(map[string]*Room),
+		mutex:   &sync.RWMutex{},
 	}
 }
 
@@ -49,22 +47,18 @@ func (ws *wsSrv) Start() error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.HandleFunc("/test", ws.testHandler)
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	go ws.writeToClientsBroadcast()
 	return ws.srv.ListenAndServe()
 }
 
 func (ws *wsSrv) Stop() error {
-	close(ws.broadcast)
-	log.Println("Before ", ws.wsClients)
 	ws.mutex.Lock()
-	for client := range ws.wsClients {
-		if err := client.Close(); err != nil {
-			log.Printf("Error with closing client: %v", err)
+	for id, room := range ws.wsRooms {
+		if err := room.DeleteRoom(); err != nil {
+			log.Printf("Error with closing room %s: %v", id, err)
 		}
-		delete(ws.wsClients, client)
+		delete(ws.wsRooms, id)
 	}
 	ws.mutex.Unlock()
-	log.Println("After ", ws.wsClients)
 	return ws.srv.Shutdown(context.Background())
 }
 
@@ -72,21 +66,38 @@ func (ws *wsSrv) testHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Cool!"))
 }
 
-func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := ws.wsUpg.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("Error with websoket connection: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	log.Printf("Client with address %s connected", conn.RemoteAddr().String())
+func (ws *wsSrv) getOrCreateRoom(roomID string) *Room {
 	ws.mutex.Lock()
-	ws.wsClients[conn] = struct{}{}
-	ws.mutex.Unlock()
-	go ws.readFromClient(conn)
+	defer ws.mutex.Unlock()
+
+	if room, ok := ws.wsRooms[roomID]; ok {
+		return room
+	}
+	room := NewRoom(roomID)
+	go room.Run()
+	ws.wsRooms[roomID] = room
+	log.Printf("Room %s created", roomID)
+	return room
 }
 
-func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
+func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("room")
+	if roomID == "" {
+		http.Error(w, "missing room parameter", http.StatusBadRequest)
+		return
+	}
+	conn, err := ws.wsUpg.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+	log.Printf("Client %s connected to room %s", conn.RemoteAddr().String(), roomID)
+	room := ws.getOrCreateRoom(roomID)
+	room.AddClient(conn)
+	go ws.readFromClient(conn, room)
+}
+
+func (ws *wsSrv) readFromClient(conn *websocket.Conn, room *Room) {
 	for {
 		msg := new(wsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
@@ -99,26 +110,13 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 		if err != nil {
 			log.Printf("Error with address split: %v", err)
+			break
 		}
 		msg.IPAdress = host
 		msg.Time = time.Now().Format("15:04")
-		ws.broadcast <- msg
+		room.broadcast <- msg
 	}
-	ws.mutex.Lock()
-	delete(ws.wsClients, conn)
-	ws.mutex.Unlock()
-}
-
-func (ws *wsSrv) writeToClientsBroadcast() {
-	for msg := range ws.broadcast {
-		ws.mutex.RLock()
-		for client := range ws.wsClients {
-			func() {
-				if err := client.WriteJSON(msg); err != nil {
-					log.Printf("Error with writing message: %v", err)
-				}
-			}()
-		}
-		ws.mutex.RUnlock()
-	}
+	room.RemoveClient(conn)
+	conn.Close()
+	log.Printf("Client %s disconnected from room %s", conn.RemoteAddr().String(), room.id)
 }
