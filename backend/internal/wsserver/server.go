@@ -1,7 +1,6 @@
 package wsserver
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -12,44 +11,21 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	templateDir = "../web/templates/html"
-)
-
-type WSServer interface {
-	Start() error
-	Stop() error
-}
-
-type wsSrv struct {
-	mux     *http.ServeMux
-	srv     *http.Server
+type WSServer struct {
 	wsUpg   *websocket.Upgrader
 	wsRooms map[string]*Room
 	mutex   *sync.RWMutex
 }
 
-func NewWsServer(addr string) WSServer {
-	mux := http.NewServeMux()
-	return &wsSrv{
-		mux: mux,
-		srv: &http.Server{
-			Addr:    addr,
-			Handler: mux,
-		},
+func NewWsServer(addr string) *WSServer {
+	return &WSServer{
 		wsUpg:   &websocket.Upgrader{},
 		wsRooms: make(map[string]*Room),
 		mutex:   &sync.RWMutex{},
 	}
 }
 
-func (ws *wsSrv) Start() error {
-	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
-	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	return ws.srv.ListenAndServe()
-}
-
-func (ws *wsSrv) Stop() error {
+func (ws *WSServer) Stop() {
 	ws.mutex.Lock()
 	for id, room := range ws.wsRooms {
 		if err := room.DeleteRoom(); err != nil {
@@ -58,10 +34,9 @@ func (ws *wsSrv) Stop() error {
 		delete(ws.wsRooms, id)
 	}
 	ws.mutex.Unlock()
-	return ws.srv.Shutdown(context.Background())
 }
 
-func (ws *wsSrv) getOrCreateRoom(roomID string) *Room {
+func (ws *WSServer) getOrCreateRoom(roomID string) *Room {
 	ws.mutex.Lock()
 	defer ws.mutex.Unlock()
 
@@ -75,7 +50,7 @@ func (ws *wsSrv) getOrCreateRoom(roomID string) *Room {
 	return room
 }
 
-func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
+func (ws *WSServer) WSHandler(w http.ResponseWriter, r *http.Request) {
 	roomID := r.URL.Query().Get("room")
 	if roomID == "" {
 		http.Error(w, "missing room parameter", http.StatusBadRequest)
@@ -92,7 +67,7 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	go ws.readFromClient(conn, room)
 }
 
-func (ws *wsSrv) readFromClient(conn *websocket.Conn, room *Room) {
+func (ws *WSServer) readFromClient(conn *websocket.Conn, room *Room) {
 	for {
 		msg := new(wsMessage)
 		if err := conn.ReadJSON(msg); err != nil {

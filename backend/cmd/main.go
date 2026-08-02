@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/Veter-ok/MarkTogether/internal/wsserver"
+	"github.com/Veter-ok/MarkTogether/internal/app"
 )
 
 const (
@@ -11,8 +11,8 @@ const (
 )
 
 func main() {
-	wsSrv := wsserver.NewWsServer(addr)
-	if err := wsSrv.Start(); err != nil {
+	app := app.NewApp(addr)
+	if err := app.Start(); err != nil {
 		log.Printf("Error with server starting: %v", err)
 	}
 }
