@@ -8,6 +8,7 @@ import (
 
 	"log"
 
+	"github.com/Veter-ok/MarkTogether/internal/document"
 	"github.com/gorilla/websocket"
 )
 
@@ -15,13 +16,15 @@ type WSServer struct {
 	wsUpg   *websocket.Upgrader
 	wsRooms map[string]*Room
 	mutex   *sync.RWMutex
+	store   document.Store
 }
 
-func NewWsServer(addr string) *WSServer {
+func NewWsServer(addr string, store document.Store) *WSServer {
 	return &WSServer{
 		wsUpg:   &websocket.Upgrader{},
 		wsRooms: make(map[string]*Room),
 		mutex:   &sync.RWMutex{},
+		store:   store,
 	}
 }
 
@@ -36,18 +39,24 @@ func (ws *WSServer) Stop() {
 	ws.mutex.Unlock()
 }
 
-func (ws *WSServer) getOrCreateRoom(roomID string) *Room {
+func (ws *WSServer) getOrCreateRoom(roomID string) (*Room, error) {
 	ws.mutex.Lock()
 	defer ws.mutex.Unlock()
 
 	if room, ok := ws.wsRooms[roomID]; ok {
-		return room
+		return room, nil
 	}
+
+	doc, err := ws.store.Get(roomID)
+	if err != nil || doc == nil {
+		return nil, err
+	}
+
 	room := NewRoom(roomID)
 	go room.Run()
 	ws.wsRooms[roomID] = room
 	log.Printf("Room %s created", roomID)
-	return room
+	return room, nil
 }
 
 func (ws *WSServer) WSHandler(w http.ResponseWriter, r *http.Request) {
@@ -56,13 +65,19 @@ func (ws *WSServer) WSHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing room parameter", http.StatusBadRequest)
 		return
 	}
+
+	room, err := ws.getOrCreateRoom(roomID)
+	if err != nil {
+		http.Error(w, "document not found", http.StatusNotFound)
+		return
+	}
+
 	conn, err := ws.wsUpg.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
 	log.Printf("Client %s connected to room %s", conn.RemoteAddr().String(), roomID)
-	room := ws.getOrCreateRoom(roomID)
 	room.AddClient(conn)
 	go ws.readFromClient(conn, room)
 }

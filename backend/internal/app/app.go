@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Veter-ok/MarkTogether/internal/api"
+	"github.com/Veter-ok/MarkTogether/internal/document"
 	"github.com/Veter-ok/MarkTogether/internal/wsserver"
 )
 
@@ -21,7 +22,8 @@ type App struct {
 
 func NewApp(addr string) *App {
 	mux := http.NewServeMux()
-	wsServer := wsserver.NewWsServer(addr)
+	store := document.NewInMemoryStore()
+	wsServer := wsserver.NewWsServer(addr, store)
 	handler := api.NewHandler(wsServer)
 
 	app := &App{

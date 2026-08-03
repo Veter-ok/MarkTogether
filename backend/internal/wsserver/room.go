@@ -10,7 +10,6 @@ import (
 type Room struct {
 	id        string
 	clients   map[*websocket.Conn]struct{}
-	document  string
 	mutex     *sync.RWMutex
 	broadcast chan *wsMessage
 }
@@ -19,7 +18,6 @@ func NewRoom(id string) *Room {
 	return &Room{
 		id:        id,
 		clients:   make(map[*websocket.Conn]struct{}),
-		document:  "123",
 		mutex:     &sync.RWMutex{},
 		broadcast: make(chan *wsMessage),
 	}
