@@ -18,6 +18,7 @@ type App struct {
 	server *http.Server
 	wsSrv  *wsserver.WSServer
 	api    *api.Handler
+	store  document.Store
 }
 
 func NewApp(addr string) *App {
@@ -34,6 +35,7 @@ func NewApp(addr string) *App {
 		},
 		wsSrv: wsServer,
 		api:   handler,
+		store: store,
 	}
 	app.registerRoutes()
 	return app
@@ -41,6 +43,11 @@ func NewApp(addr string) *App {
 
 func (app *App) registerRoutes() {
 	app.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
+
+	docHandler := api.NewDocumentHandler(app.store)
+	app.mux.HandleFunc("POST /api/documents", docHandler.CreateDocument)
+	app.mux.HandleFunc("GET /api/documents/{id}", docHandler.GetDocument)
+
 	app.mux.HandleFunc("/ws", app.wsSrv.WSHandler)
 }
 
